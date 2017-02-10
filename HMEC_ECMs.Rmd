@@ -101,6 +101,15 @@ p <- ggplot(dt, aes(x=factor(Barcode), y=Nuclei_PA_Gated_EdUPositiveProportion, 
   theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
 print(p)
 
+#Well level KRT19High Boxplots
+p <- ggplot(dt, aes(x=factor(Barcode), y=Cytoplasm_PA_Gated_KRT19PositiveProportion, colour=CellLine))+
+  geom_boxplot(outlier.size = .5)+
+  xlab("Well Plate Barcode")+ylab("KRT19 High Proportion")+
+  ggtitle("COL1 KRT19 High Proportion by Plate")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+print(p)
+
+
 ```
 
 ***
@@ -122,7 +131,7 @@ The boxplots show the spot cell count and proliferation values for the 99 COL1 c
 
 ```{r boxplotsbyECMp, fig.height=5}
 
-dt <- l3[!grepl("632|633|635|636|638|655",Barcode),]
+dt <- l3[!grepl("632|633|635|636|638|652|655|656",Barcode),]
 normToCOL1Median <- function(dt){
   m <- numericMedian(unlist(dt[dt$ECMp=="COL1",1]))
   if(m==0)stop(paste("Can't normalize when median equals 0",unique(dt$Barcode)))
@@ -131,6 +140,7 @@ normToCOL1Median <- function(dt){
 #Normalize some signals
 dt <- dt[,Spot_PA_SpotCellCountLog2NormCOL1Median := normToCOL1Median(.SD), .SDcols=c("Spot_PA_SpotCellCountLog2","ECMp","Barcode"),by=c("Barcode")]
 dt <- dt[,Nuclei_PA_Gated_EdUPositiveProportionLogitNormCOL1Median := normToCOL1Median(.SD), .SDcols=c("Nuclei_PA_Gated_EdUPositiveProportionLogit","ECMp","Barcode"),by=c("Barcode")]
+dt <- dt[,Cytoplasm_PA_Gated_KRT19PositiveProportionLogitNormCOL1Median := normToCOL1Median(.SD), .SDcols=c("Cytoplasm_PA_Gated_KRT19PositiveProportionLogit","ECMp","Barcode"),by=c("Barcode")]
 p <- ggplot(dt, aes(x = ECMp, y = 2^Spot_PA_SpotCellCountLog2, fill=CellLine))+
   geom_boxplot()+
   ggtitle(paste("Raw Spot Cell Count by ECM Protein and Cell Line"))+
@@ -145,7 +155,7 @@ p <- ggplot(dt, aes(x = ECMp, y = 2^Spot_PA_SpotCellCountLog2NormCOL1Median, fil
   ggtitle(paste("Normalized Spot Cell Count by ECM Protein and Cell Line"))+
   xlab("ECM Protein")+ylab("Normalized Cell Count")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
-#p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
 
 suppressWarnings(print(p))
 
@@ -162,11 +172,25 @@ p <- ggplot(dt, aes(x = ECMp, y = btLogit(Nuclei_PA_Gated_EdUPositiveProportionL
   ggtitle(paste("Normalized Proliferation by ECM Protein and Cell Line"))+
   xlab("ECM Protein")+ylab("Normalized Proliferation")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
-#p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
-
+p <- p + geom_hline(yintercept = .5, colour="blue", alpha=.5)
 suppressWarnings(print(p))
 
+p <- ggplot(dt, aes(x = ECMp, y = btLogit(Cytoplasm_PA_Gated_KRT19PositiveProportionLogit), fill=CellLine))+
+  geom_boxplot()+
+  ggtitle(paste("Raw KRT19 High Proportion by ECM Protein and Cell Line"))+
+  xlab("ECM Protein")+ylab("KRT19 High Proportion")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+suppressWarnings(print(p))
 
+p <- ggplot(dt, aes(x = ECMp, y = btLogit(Cytoplasm_PA_Gated_KRT19PositiveProportionLogitNormCOL1Median), fill=CellLine))+
+  geom_boxplot()+
+  #coord_cartesian(ylim=c(0,5))+
+  ggtitle(paste("Normalized KRT19 High Proportion by ECM Protein and Cell Line"))+
+  xlab("ECM Protein")+ylab("Normalized KRT19 High")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = .5, colour="blue", alpha=.5)
+
+suppressWarnings(print(p))
 ```
 
 ***
@@ -231,6 +255,32 @@ aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
           main=paste("Normalized Proliferation Replicates"),
         annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
 
+
+dtc <- dcast(dt,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = "Cytoplasm_PA_Gated_KRT19PositiveProportion", fill=NA)
+dtcRowNames <- dtc$ECMp
+dtc <- dtc[,ECMp:=NULL]
+dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
+#Compress the tails to show more variation within the distributions
+dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = .05)] <- quantile(dtcMatrix,probs = .05)
+dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = .95)] <- quantile(dtcMatrix,probs = .95)
+rownames(dtcMatrix)<-dtcRowNames
+aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+          main=paste("Raw KRT19 High Replicates"),
+        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtcMatrix)))))
+
+
+dtc <- dcast(dt,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = "Cytoplasm_PA_Gated_KRT19PositiveProportionLogitNormCOL1Median", fill=NA)
+dtcRowNames <- dtc$ECMp
+dtc <- dtc[,ECMp:=NULL]
+dtcMatrix <- as.matrix(dtc)
+#Compress the tails to show more variation within the distributions
+dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = .05)] <- quantile(dtcMatrix,probs = .05)
+dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = .95)] <- quantile(dtcMatrix,probs = .95)
+rownames(dtcMatrix)<-dtcRowNames
+colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+          main=paste("Normalized KRT19 High Replicates"),
+        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
 
 ```
 
