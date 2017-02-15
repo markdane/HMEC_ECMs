@@ -34,11 +34,18 @@ library(corrplot)
 library(Rtsne)
 library(synapseClient)
 library(NMF)
+library(stringr)
 
 #Setup colors for Barcode and text in all heatmaps
 selDark2 <- colorRampPalette(brewer.pal(8,"Dark2"))
 plateCol <- selDark2(8)
 hmcols<-colorRampPalette(c("blue","white","red"))(16)
+
+normToCOL1Median <- function(dt){
+  m <- numericMedian(unlist(dt[dt$ECMp=="COL1",1]))
+  if(m==0)stop(paste("Can't normalize when median equals 0",unique(dt$Barcode)))
+  r <- dt[,1]-m
+}
 
 #Load the latest level 3 SS4 HMEC datasets from Synapse
 synapseLogin()
@@ -56,6 +63,12 @@ l3 <- rbindlist(l3L)
 #Remove FBS plate suffixes
 l3$Ligand <- gsub("FBS_P.*","FBS",l3$Ligand)
 
+#Normalize all log and logit signals without doing their SE values
+sigNames <- grep("_SE",grep("Log", colnames(l3),value=TRUE),value=TRUE,invert=TRUE)
+for(sigName in sigNames){
+  l3 <- l3[,sigNameNorm := normToCOL1Median(.SD), .SDcols=c(sigName,"ECMp","Barcode"),by=c("Barcode")]
+  setnames(l3,"sigNameNorm",paste0(sigName,"NormCOL1Median"))
+}
 
 ```
 
@@ -168,17 +181,8 @@ Manual review of the replicates leads to filteirng out plates `r filteredPlates`
 
 ```{r boxplotsbyECMp, fig.height=5}
 
-normToCOL1Median <- function(dt){
-  m <- numericMedian(unlist(dt[dt$ECMp=="COL1",1]))
-  if(m==0)stop(paste("Can't normalize when median equals 0",unique(dt$Barcode)))
-  r <- dt[,1]-m
-}
-
 dt <- l3f[!grepl("NID1|ELN",ECMp),]
-#Normalize some signals
-dt <- dt[,Spot_PA_SpotCellCountLog2NormCOL1Median := normToCOL1Median(.SD), .SDcols=c("Spot_PA_SpotCellCountLog2","ECMp","Barcode"),by=c("Barcode")]
-dt <- dt[,Nuclei_PA_Gated_EdUPositiveProportionLogitNormCOL1Median := normToCOL1Median(.SD), .SDcols=c("Nuclei_PA_Gated_EdUPositiveProportionLogit","ECMp","Barcode"),by=c("Barcode")]
-dt <- dt[,Cytoplasm_PA_Gated_KRT19PositiveProportionLogitNormCOL1Median := normToCOL1Median(.SD), .SDcols=c("Cytoplasm_PA_Gated_KRT19PositiveProportionLogit","ECMp","Barcode"),by=c("Barcode")]
+
 p <- ggplot(dt, aes(x = ECMp, y = 2^Spot_PA_SpotCellCountLog2, fill=CellLine))+
   geom_boxplot()+
   ggtitle(paste("Raw Spot Cell Count by ECM Protein and Cell Line"))+
@@ -452,3 +456,50 @@ if(dim(dtf)[1]>1){
 
 ***
 These heatmaps are of the raw and normalized cell count, proliferation and lineage signals that have significant differences(Wilcoxon Rank Sum test with fdr=.2) in the responses across cell lines. To show greater variation in the heatmaps, before clustering the values below the `r lowSquishProb` percentile are set to the `r lowSquishProb` percentile value and values above the `r highSquishProb` percentile and set to the `r highSquishProb` percentile value.
+
+###PCA of all normalized signals
+
+```{r, fig.height=4,fig.width=5}
+
+createPCAModel <- function(dt,fvNames,verbose=FALSE){
+  #delete any non-varying signals that cannot be scaled to unit variance
+  stdDevs <- apply(dt[,fvNames, with=FALSE], 2, sd)
+  if(any(stdDevs==0)&verbose)  cat(paste("Deleting",fvNames[stdDevs==0], "due to 0 variance\n"))
+  fvNames <- fvNames[!stdDevs==0]
+  PCAModel <- prcomp(as.formula(paste(" ~ ", paste(fvNames, collapse = "+"))), data = dt, scale.= TRUE)
+  rownames(PCAModel$x)<-paste(dt$MEP,gsub("LI8X00","",dt$Barcode), sep="_")
+  return(PCAModel)
+}
+
+###PCA Unbiased Analysis  
+
+#Get a PCA model of the COL1 normalized data
+COL1NormFVNames <- grep("COL1Median",colnames(l3f), value=TRUE)
+#Median summarize the signals to the MEP/ECMp level
+mc <- l3f[!grepl("NID1|ELN",ECMp),lapply(.SD,numericMedian), by=c("ECMp","CellLine"),.SDcols=COL1NormFVNames]
+MEPs <- mc[,lapply(.SD,diff), by=c("ECMp"),.SDcols=COL1NormFVNames]
+COL1NormPCAModel <- createPCAModel(dt=MEPs, fvNames = COL1NormFVNames)
+
+###PCA of normalized spot
+
+xlim<-c(-10,10)
+ylim<-c(-10,10)
+dt <- cbind(data.table(COL1NormPCAModel$x), ECMp=MEPs$ECMp)
+
+p12 <- ggplot(dt, aes(x = PC1, y = PC2, colour = ECMp)) +
+      geom_point(size = rel(.8), alpha = .6) +
+      labs(colour = "ECM Protein")+
+      ggtitle("PCA of The Cell Line Differences of All Normalized Signals")+
+      #coord_cartesian(xlim=xlim, ylim=ylim)+
+      theme(legend.text=element_text(size = 6),
+            plot.title=element_text(size = rel(.7)))
+ggplotly(p12)
+
+```
+
+***
+####Method
+The responses in all normalized signals are first median summerized across the replicates.  
+Next, the differences between the cell lines are calculated.  
+PCA is run on the differences to reduce from `r length(COL1NormFVNames)` signals.  
+The scatterplot shows the first 2 principal components of all normalized signals, colored by ECM protein. Hovering over a spot shows its ECM protein. 
