@@ -17,7 +17,7 @@ knitr::opts_knit$set(root.dir = "/data/share/dane/HMEC_ECMs")
 ```
 
 
-```{r LoadAndCleanData, cache=TRUE}
+```{r LoadAndCleanData, cache=FALSE}
 #Author: Mark Dane, copyright 2017
 library(ggplot2)
 library(scales)
@@ -52,12 +52,18 @@ synapseLogin()
 HMEC122L_l3 <- "syn7121240"
 HMEC240L_l3 <- "syn7121244"
 #Get and clean the datasets
-l3L <- lapply(c(HMEC240L_l3,HMEC122L_l3), function(x){
-  synGet(x) %>%
-    getFileLocation() %>%
-    fread(.,showProgress=FALSE) %>%
+# l3L <- lapply(c(HMEC240L_l3,HMEC122L_l3), function(x){
+#   synGet(x) %>%
+#     getFileLocation() %>%
+#     fread(.,showProgress=FALSE) %>%
+#     filter(grepl("FBS",Ligand)) #Filter to only the FBS wells
+# })
+
+l3L <- lapply(c("HMEC240L_SS4","HMEC122L_SS4"), function(x){
+    fread(paste0("/lincs/share/lincs_user/study/",x,"/Annotated/",x,"_Level3.tsv"),showProgress=FALSE) %>%
     filter(grepl("FBS",Ligand)) #Filter to only the FBS wells
 })
+
 #Combine into one data.table
 l3 <- rbindlist(l3L)
 #Remove FBS plate suffixes
@@ -125,8 +131,11 @@ p <- ggplot(dt, aes(x=factor(Barcode), y=Cytoplasm_PA_Gated_KRT19PositiveProport
 print(p)
 
 #Filter out boxplots that are not good replicates
-filteredPlates <- c("632","633","635","636","638","652","653","655","656","658")
+#filteredPlates <- c("632","633","635","636","638","652","653","655","656","658")
+filteredPlates <- c("")
 l3f <-l3[!grepl(paste(filteredPlates,collapse = "|"),Barcode),]
+
+l3f<-l3
 
 #Show post filtered boxplots
 #Well level COL1 Spot Cell Count Boxplots
@@ -457,9 +466,130 @@ if(dim(dtf)[1]>1){
 ***
 These heatmaps are of the raw and normalized cell count, proliferation and lineage signals that have significant differences(Wilcoxon Rank Sum test with fdr=.2) in the responses across cell lines. To show greater variation in the heatmaps, before clustering the values below the `r lowSquishProb` percentile are set to the `r lowSquishProb` percentile value and values above the `r highSquishProb` percentile and set to the `r highSquishProb` percentile value.
 
+###Heatmaps of the RUV normalized significant signals (Wilcoxon Rank Sum tests)
+
+
+```{r WilcoxonHeatmapsOfReplicatesRUV, fig.height=5}
+
+signalName <- "Spot_PA_SpotCellCountLog2RUVLoess"
+dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
+dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
+if(dim(dtf)[1]>1){
+  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
+dtcRowNames <- dtc$ECMp
+dtc <- dtc[,ECMp:=NULL]
+dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
+#Compress the tails to show more variation within the distributions
+dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
+dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
+rownames(dtcMatrix)<-dtcRowNames
+colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+          main=paste("RUV Normalized Spot Cell Count Replicates"),
+        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
+}
+
+signalName <- "Spot_PA_SpotCellCountLog2RUVLoessNormCOL1Median"
+dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
+dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
+if(dim(dtf)[1]>1){
+  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
+  dtcRowNames <- dtc$ECMp
+  dtc <- dtc[,ECMp:=NULL]
+  dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
+  #Compress the tails to show more variation within the distributions
+  dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
+  dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
+  rownames(dtcMatrix)<-dtcRowNames
+  colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+   if(dim(dtcMatrix)[1]==1) dtcMatrix <- rbind(dtcMatrix,dtcMatrix)
+    aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+             main=paste("RUV and COL1 Normalized Spot Cell CountReplicates"),
+             annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
+}
+
+signalName <- "Nuclei_PA_Gated_EdUPositiveProportionLogitRUVLoess"
+dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
+dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
+dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
+dtcRowNames <- dtc$ECMp
+dtc <- dtc[,ECMp:=NULL]
+dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
+#Compress the tails to show more variation within the distributions
+dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
+dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
+rownames(dtcMatrix)<-dtcRowNames
+colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+          main=paste("RUV Normalized Proliferation Replicates"),
+        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
+
+signalName <- "Nuclei_PA_Gated_EdUPositiveProportionLogitRUVLoessNormCOL1Median"
+dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
+dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
+if(dim(dtf)[1]>1){
+dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
+dtcRowNames <- dtc$ECMp
+dtc <- dtc[,ECMp:=NULL]
+dtcMatrix <- as.matrix(dtc)
+#Compress the tails to show more variation within the distributions
+dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
+dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
+rownames(dtcMatrix)<-dtcRowNames
+colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+          main=paste("RUV and COL1 Normalized Proliferation Replicates"),
+        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
+}
+
+signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportionLogitRUVLoess"
+dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
+dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
+dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
+dtcRowNames <- dtc$ECMp
+dtc <- dtc[,ECMp:=NULL]
+dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
+#Compress the tails to show more variation within the distributions
+dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
+dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
+rownames(dtcMatrix)<-dtcRowNames
+colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+          main=paste("RUV Normalized KRT19 High Replicates"),
+        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
+
+signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportionLogitRUVLoessNormCOL1Median"
+dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
+dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
+if(dim(dtf)[1]>1){
+  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
+  dtcRowNames <- dtc$ECMp
+  dtc <- dtc[,ECMp:=NULL]
+  dtcMatrix <- as.matrix(dtc)
+  #Compress the tails to show more variation within the distributions
+  dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
+  dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
+  rownames(dtcMatrix)<-dtcRowNames
+  colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
+  aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
+           main=paste("RUV and COL1 Normalized KRT19 High Replicates"),
+           annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
+}
+
+```
+
+***
+These heatmaps are of the RUV and RUV+COL1 and normalized cell count, proliferation and lineage signals that have significant differences(Wilcoxon Rank Sum test with fdr=.2) in the responses across cell lines. To show greater variation in the heatmaps, before clustering the values below the `r lowSquishProb` percentile are set to the `r lowSquishProb` percentile value and values above the `r highSquishProb` percentile and set to the `r highSquishProb` percentile value.
+
 ###PCA of all normalized signals
 
-```{r, fig.height=4,fig.width=5}
+```{r, fig.height=3,fig.width=4}
 
 createPCAModel <- function(dt,fvNames,verbose=FALSE){
   #delete any non-varying signals that cannot be scaled to unit variance
