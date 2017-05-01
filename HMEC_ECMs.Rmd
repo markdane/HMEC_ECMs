@@ -69,6 +69,47 @@ l3 <- l3[,sigNameNorm := normToCOL1Median(.SD), .SDcols=c(sigName,"ECMp","Barcod
 setnames(l3,"sigNameNorm",paste0(sigName,"COL1MedianNorm"))
 }
 
+#Calculate wilcoxon rank tests within a cell line
+wilcoxpValuesWithinACellLine <- function(ECMp,signalValues) {
+  #Get the COL1 values for the signal
+  COL1Values <- signalValues[ECMp=="COL1"]
+  res <- lapply(unique(ECMp[!ECMp=="COL1"]), function(e){
+    p <- wilcox.test(x = signalValues[ECMp==e], y=COL1Values)$p.value
+    names(p) <- e
+    p
+  })
+  data.table(ECMp=names(unlist(res)), wilcoxPValue=unlist(res))
+}
+
+#Summarize the signals at each spot within a cell line
+normMedians <- unique(l3[,.(Spot_PA_SpotCellCountNormCOL1MedianNorm=numericMedian(Spot_PA_SpotCellCountNormCOL1MedianNorm),
+                               Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm=numericMedian(Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm),
+                               Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm = numericMedian(Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm),
+                             ECMp),by=c("CellLine","Spot")]) 
+
+#Calculate wilcoxon rank sum p values within each cell line comparing spot cell counts for each ECMp to COL1 
+dtp122L <- normMedians[grepl("HMEC122L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Spot_PA_SpotCellCountNormCOL1MedianNorm)]
+dtp122L$CellLine <- "HMEC122L"
+dtp122L <- dtp122L[,pAdjustedWithinCellLine := p.adjust(wilcoxPValue,method="fdr")]
+
+dtp240L <- normMedians[grepl("HMEC240L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Spot_PA_SpotCellCountNormCOL1MedianNorm)]
+dtp240L$CellLine <- "HMEC240L"
+dtp240L <- dtp240L[,pAdjustedWithinCellLine := p.adjust(wilcoxPValue,method="fdr")]
+
+#Add the p values that compare each SpotCellCount to the COL1 values
+l3 <- merge(l3,rbind(dtp122L,dtp240L),by=c("ECMp","CellLine"), all=TRUE)
+
+#Calculate wilcoxon rank tests across cell lines
+wilcoxpValuesAcrossCellLines <- function(DT){
+  sigName <- colnames(DT)[2]
+  tmp <- wilcox.test(DT[[sigName]][DT$CellLine==unique(DT$CellLine)[1]],
+                DT[[sigName]][DT$CellLine==unique(DT$CellLine)[2]])$p.value
+}
+
+dtp <- normMedians[,.(wilcoxPValueAcrossCellLines=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine","Spot_PA_SpotCellCountNormCOL1MedianNorm")]
+dtp <- dtp[,pAdjustedAcrosCellLines := p.adjust(wilcoxPValueAcrossCellLines,method="fdr")]
+#Add the p values that compare each SpotCellCount across cell lines
+l3 <- merge(l3,dtp,by="ECMp")
 ```
 
 
@@ -101,41 +142,12 @@ levels(dtm$ProcessLevel) <- c("Raw","RUVLoessResidual","RUVLoessResidualandCol1"
 
 p <- ggplot(dtm, aes(x=Barcode, y=Spot_Cell_Count, colour=ProcessLevel))+
   geom_boxplot(outlier.size = .5)+
+  scale_y_log10()+
   xlab("Well Plate Barcode")+ylab("Spot Cell Count")+
-  ggtitle("Normalization Results of COL1 Spot Cell Count by Plate")+
+  ggtitle("Normalization Results of Spot Cell Count")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
 
 print(p)
-
-#ECMp Spot cell counts Boxplots
-p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm))+
-  geom_boxplot(outlier.size = .5)+
-  xlab("Well Plate Barcode")+ylab("Normalized Spot Cell Count")+
-  ggtitle("Normalized COL1 Spot Cell Count Proportion by ECM Protein")+
-  facet_wrap(~CellLine)+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
-p <- p + geom_hline(yintercept = 1, colour="blue")
-print(p)
-
-#Well level Proliferation Boxplots
-p <- ggplot(l3, aes(x=factor(ECMp), y=Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm, colour=CellLine))+
-  geom_boxplot(outlier.size = .5)+
-  #coord_cartesian(ylim = c(0,1))+
-  xlab("Well Plate Barcode")+ylab("Proliferation Proportion")+
-  ggtitle("Normalized COL1 Proliferation Proportion by ECM Protein")+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
-print(p)
-
-#Well level KRT19High Boxplots
-p <- ggplot(l3, aes(x=factor(ECMp), y=Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm, colour=CellLine))+
-  geom_boxplot(outlier.size = .5)+
-  #coord_cartesian(ylim = c(0,1))+
-  xlab("Well Plate Barcode")+ylab("KRT19 High Proportion")+
-  ggtitle("Normalized COL1 KRT19 High Proportion by ECM Protein")+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
-print(p)
-
-
 ```
 
 ***
@@ -150,258 +162,98 @@ This analysis is based on immunofluorescent cell-level data that has been summar
 All MEMAs in the experiment are in separate wells and have the same design of 48 ECM proteins spotted in 35 rows and 20 columns. The proteins are randomly assigned to spots in the top 30 rows. Rows 31-35 are replicates of rows 1-5. There is a higher number of COL1 spots (shown as black triangles) throughout the array that are control spots. The upper left and bottom right corners of each MEMA are image fiducials in the 488nm channel and there are four blank spots for checking orientation in all channels.
 
 #####Boxplots
-This dataset has raw, RUVLoessResidual normalized and RUVLoessResidual normalized that has then been normalized to the collagen 1 spots in the same MEMA. These figures show results of these three states of processing.
+This dataset has raw, RUVLoessResidual normalized and RUVLoessResidual normalized that has then been normalized to the collagen 1 spots in the same MEMA. These figures show results of these three states of processing. The RUVLoessResiduals normalization removes the variance between the replicates that are in the same location in the MEMA.  
 
-The following boxplots show the fully normalized values for spot cell count, EdU positive proportion and KRT19 high positive proportion for each ECM protein and cell line. Each boxplot contains data from 80-120 replicate spots that come from 8 different plates.  
+###Signals by ECM Protein and CellLine
 
 
-###Heatmaps of the significant signals (Wilcoxon Rank Sum tests)
+
+```{r, fig.height=5, fig.width=14}
+
+#ECMp Spot cell counts Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, colour=ECMp=="COL1", fill=pAdjustedWithinCellLine<.2))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","blue"))+
+  guides(colour=FALSE)+
+  labs(x="ECM Protein",
+       y="Normalized Spot Cell Count",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized Spot Cell Count by ECM Protein")+
+  facet_wrap(~CellLine)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+
+p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, fill=pAdjustedAcrosCellLines<.2, colour=CellLine))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","coral3"))+
+    labs(x="ECM Protein",
+       y="Normalized Spot Cell Count",
+       colour="Cell Line",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized Spot Cell Count by ECM Protein")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+
+```
+
+***
+The first figure compares Spot Cell Count values from each ECM protein to the collagen 1 spots of the same cell line. Each boxplot shows the distribution of ~14 replicate spots from 8 different plates. Significant differences between the response are based of Wilcoxon Rank Sum tests between each ECM protein and collagen 1. Boxplots with fdr adjusted p-values less than .2 are blue.  
+
+###Proliferation and Lineage Signals
+
+```{r}
+#ECMp Proliferation Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm))+
+  geom_boxplot(outlier.size = .5)+
+  xlab("Well Plate Barcode")+ylab("Proliferation Proportion")+
+  ggtitle("Normalized Proliferation Proportion by ECM Protein")+
+    facet_wrap(~CellLine)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+print(p)
+
+#Well level KRT19High Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm, colour=CellLine))+
+  geom_boxplot(outlier.size = .5)+
+  xlab("Well Plate Barcode")+ylab("KRT19 High Proportion")+
+  ggtitle("Normalized KRT19 High Proportion by ECM Protein")+
+    facet_wrap(~CellLine)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+print(p)
+
+
+```
+
+***
+These boxplots show the fully normalized values for spot cell count, EdU positive proportion and KRT19 high positive proportion for each ECM protein and cell line. Each boxplot contains data from 80-120 replicate spots that come from 8 different plates.  
+
+
+### of the significant signals (Wilcoxon Rank Sum tests)
 
 
 ```{r WilcoxonHeatmapsOfReplicates, fig.height=5}
 
-wilcoxpValues <- function(DT){
-  tmp <- wilcox.test(DT[[signalName]][DT$CellLine==unique(DT$CellLine)[1]],
-                DT[[signalName]][DT$CellLine==unique(DT$CellLine)[2]])$p.value
-}
-
-
-signalName <- "Spot_PA_SpotCellCount"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("Raw Spot Cell Count Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
-
-signalName <- "Spot_PA_SpotCellCountNormCOL1MedianNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-  dtcRowNames <- dtc$ECMp
-  dtc <- dtc[,ECMp:=NULL]
-  dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-  #Compress the tails to show more variation within the distributions
-  dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-  dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-  rownames(dtcMatrix)<-dtcRowNames
-  colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-   if(dim(dtcMatrix)[1]==1) dtcMatrix <- rbind(dtcMatrix,dtcMatrix)
-    aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-             main=paste("Normalized Spot Cell CountReplicates"),
-             annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
-
-signalName <- "Nuclei_PA_Gated_EdUPositiveProportion"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("Raw Proliferation Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-
 signalName <- "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- l3[,.(wilcoxPValue=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
 dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc)
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("Normalized Proliferation Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
+dtf <- l3[l3$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
 
-signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportion"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("Raw KRT19 High Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
 
 signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
+dtp <- l3[,.(wilcoxPValue=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
 dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-  dtcRowNames <- dtc$ECMp
-  dtc <- dtc[,ECMp:=NULL]
-  dtcMatrix <- as.matrix(dtc)
-  #Compress the tails to show more variation within the distributions
-  dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-  dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-  rownames(dtcMatrix)<-dtcRowNames
-  colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-  aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-           main=paste("Normalized KRT19 High Replicates"),
-           annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
+dtf <- l3[l3$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
 
+
+kable(unique(l3[l3$pAdjustedWithinCellLine<.2,.(CellLine, ECMp, pAdjustedWithinCellLine)]))
 ```
 
 ***
-These heatmaps are of the raw and normalized cell count, proliferation and lineage signals that have significant differences(Wilcoxon Rank Sum test with fdr=.2) in the responses across cell lines. To show greater variation in the heatmaps, before clustering the values below the `r lowSquishProb` percentile are set to the `r lowSquishProb` percentile value and values above the `r highSquishProb` percentile and set to the `r highSquishProb` percentile value.
-
-###Heatmaps of the RUV normalized significant signals (Wilcoxon Rank Sum tests)
-
-
-```{r WilcoxonHeatmapsOfReplicatesRUV, fig.height=5}
-
-signalName <- "Spot_PA_SpotCellCountNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("Normalized Spot Cell Count Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
-
-signalName <- "Spot_PA_SpotCellCountNormCOL1MedianNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-  dtcRowNames <- dtc$ECMp
-  dtc <- dtc[,ECMp:=NULL]
-  dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-  #Compress the tails to show more variation within the distributions
-  dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-  dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-  rownames(dtcMatrix)<-dtcRowNames
-  colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-   if(dim(dtcMatrix)[1]==1) dtcMatrix <- rbind(dtcMatrix,dtcMatrix)
-    aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-             main=paste("RUVLoessResidual and COL1 Normalized Spot Cell CountReplicates"),
-             annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
-
-signalName <- "Nuclei_PA_Gated_EdUPositiveProportionNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("RUV Normalized Proliferation Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-
-signalName <- "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc)
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("RUV and COL1 Normalized Proliferation Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
-
-signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportionNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-dtcRowNames <- dtc$ECMp
-dtc <- dtc[,ECMp:=NULL]
-dtcMatrix <- as.matrix(dtc, dimnames=list(dtcRowNames,colnames(dtc)))
-#Compress the tails to show more variation within the distributions
-dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-rownames(dtcMatrix)<-dtcRowNames
-colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-          main=paste("RUV Normalized KRT19 High Replicates"),
-        annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-
-signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm"
-dtp <- dt[,.(wilcoxPValue=wilcoxpValues(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- dt[dt$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-if(dim(dtf)[1]>1){
-  dtc <- dcast(dtf,ECMp~Barcode+CellLine,fun.aggregate = median, value.var = signalName, fill=NA)
-  dtcRowNames <- dtc$ECMp
-  dtc <- dtc[,ECMp:=NULL]
-  dtcMatrix <- as.matrix(dtc)
-  #Compress the tails to show more variation within the distributions
-  dtcMatrix[dtcMatrix < quantile(dtcMatrix,probs = lowSquishProb)] <- quantile(dtcMatrix,probs = lowSquishProb)
-  dtcMatrix[dtcMatrix > quantile(dtcMatrix,probs = highSquishProb)] <- quantile(dtcMatrix,probs = highSquishProb)
-  rownames(dtcMatrix)<-dtcRowNames
-  colnames(dtcMatrix) <- gsub("_.*","",colnames(dtc))
-  aheatmap(dtcMatrix, col=hmcols, cexRow=.6, cexCol=.5,
-           main=paste("RUV and COL1 Normalized KRT19 High Replicates"),
-           annCol = list(CellLine=as.factor(gsub(".*_","",colnames(dtc)))))
-}
-
-```
-
-***
-These heatmaps are of the RUV and RUV+COL1 and normalized cell count, proliferation and lineage signals that have significant differences(Wilcoxon Rank Sum test with fdr=.2) in the responses across cell lines. To show greater variation in the heatmaps, before clustering the values below the `r lowSquishProb` percentile are set to the `r lowSquishProb` percentile value and values above the `r highSquishProb` percentile and set to the `r highSquishProb` percentile value.
 
 ###Scatterplots of the RUVLoessResiduals normalized signals
 
@@ -424,7 +276,7 @@ compScatterplots <- function(dt,sig,title,limits,sdInt=.25) {
   print(p)
 }
 
-dt <- l3[!grepl("NID1|ELN",ECMp),]
+dt <- l3
 
 #Select the COL1+RUV normalized values
 COL1NormFVNames <- grep("NormCOL1MedianNorm",colnames(l3), value=TRUE)
@@ -433,9 +285,9 @@ mc <- l3[!grepl("NID1|ELN",ECMp),lapply(.SD,numericMedian), by=c("ECMp","CellLin
 #Calculate the difference between the cell lines
 MEPs <- mc[,lapply(.SD,diff), by=c("ECMp"),.SDcols=COL1NormFVNames]
 
-compScatterplots(dt, sig = "Spot_PA_SpotCellCountNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Spot Cell Counts\n in the HMEC Cell Lines",limits=c(-.5,.7), sdInt = sd(MEPs$Spot_PA_SpotCellCountNormCOL1MedianNorm))
-compScatterplots(dt,sig = "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Proliferation\n in the HMEC Cell Lines",limits=c(-.5,1), sdInt = sd(MEPs$Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm))
-compScatterplots(dt, sig = "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Luminal Signal\n  in the HMEC Cell Lines",limits=c(-1,.6), sdInt = sd(MEPs$Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm))
+compScatterplots(dt, sig = "Spot_PA_SpotCellCountNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Spot Cell Counts\n in the HMEC Cell Lines",limits=c(0,2), sdInt = sd(MEPs$Spot_PA_SpotCellCountNormCOL1MedianNorm))
+compScatterplots(dt,sig = "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Proliferation\n in the HMEC Cell Lines",limits=c(0,5), sdInt = sd(MEPs$Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm))
+compScatterplots(dt, sig = "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Luminal Signal\n  in the HMEC Cell Lines",limits=c(0,2.5), sdInt = sd(MEPs$Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm))
 
 ```
 
@@ -560,7 +412,7 @@ mc <- l3[!grepl("NID1|ELN",ECMp),lapply(.SD,numericMedian), by=c("ECMp","CellLin
 #Calculate the difference between the cell lines
 MEPs <- mc[,lapply(.SD,diff), by=c("ECMp"),.SDcols=COL1NormFVNames]
 
-compScatterplotly(dt, sig = "Spot_PA_SpotCellCountNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Spot Cell Counts\n in the HMEC Cell Lines",limits=c(-.5,.7), sdInt = sd(MEPs$Spot_PA_SpotCellCountNormCOL1MedianNorm))
+compScatterplotly(dt, sig = "Spot_PA_SpotCellCountNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Spot Cell Counts\n in the HMEC Cell Lines",limits=c(0,2), sdInt = sd(MEPs$Spot_PA_SpotCellCountNormCOL1MedianNorm))
 
 
 ```
@@ -571,7 +423,7 @@ compScatterplotly(dt, sig = "Spot_PA_SpotCellCountNormCOL1MedianNorm",title = "C
 
 ```{r, scatterPlotlyProliferation, fig.height=3,fig.width=4}
 
-compScatterplotly(dt, sig = "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Proliferation\n in the HMEC Cell Lines",limits=c(-.5,1), sdInt = sd(MEPs$Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm))
+compScatterplotly(dt, sig = "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Proliferation\n in the HMEC Cell Lines",limits=c(0,5), sdInt = sd(MEPs$Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm))
 
 ```
 
@@ -582,7 +434,7 @@ compScatterplotly(dt, sig = "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1Median
 
 ```{r, scatterPlotlyLineage, fig.height=3,fig.width=4}
 
-compScatterplotly(dt, sig = "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Lineage\n in the HMEC Cell Lines",limits=c(-1,.6), sdInt = sd(MEPs$Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm))
+compScatterplotly(dt, sig = "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm",title = "Comparison of RUV+COL1 Normalized Lineage\n in the HMEC Cell Lines",limits=c(0,2.5), sdInt = sd(MEPs$Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm))
 
 ```
 
