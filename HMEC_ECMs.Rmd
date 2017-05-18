@@ -62,7 +62,7 @@ l3L <- lapply(c(HMEC240L_l3,HMEC122L_l3), function(x){
 #Combine into one data.table
 l3 <- rbindlist(l3L)
 
-#Normalize all log and logit signals without doing their SE values
+#Normalize all log and logit signalsto their Collagen 1values without doing their SE values
 sigNames <- grep("_SE",grep("Norm$", colnames(l3),value=TRUE),value=TRUE,invert=TRUE)
 for(sigName in sigNames){
 l3 <- l3[,sigNameNorm := normToCOL1Median(.SD), .SDcols=c(sigName,"ECMp","Barcode"),by=c("Barcode")]
@@ -90,13 +90,37 @@ normMedians <- unique(l3[,.(Spot_PA_SpotCellCountNormCOL1MedianNorm=numericMedia
 #Calculate wilcoxon rank sum p values within each cell line comparing spot cell counts for each ECMp to COL1 
 dtp122L <- normMedians[grepl("HMEC122L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Spot_PA_SpotCellCountNormCOL1MedianNorm)]
 dtp122L$CellLine <- "HMEC122L"
-dtp122L <- dtp122L[,pAdjustedWithinCellLine := p.adjust(wilcoxPValue,method="fdr")]
+dtp122L <- dtp122L[,pAdjustedWithinCellLineSCC := p.adjust(wilcoxPValue,method="fdr")]
 
 dtp240L <- normMedians[grepl("HMEC240L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Spot_PA_SpotCellCountNormCOL1MedianNorm)]
 dtp240L$CellLine <- "HMEC240L"
-dtp240L <- dtp240L[,pAdjustedWithinCellLine := p.adjust(wilcoxPValue,method="fdr")]
+dtp240L <- dtp240L[,pAdjustedWithinCellLineSCC := p.adjust(wilcoxPValue,method="fdr")]
 
 #Add the p values that compare each SpotCellCount to the COL1 values
+l3 <- merge(l3,rbind(dtp122L,dtp240L),by=c("ECMp","CellLine"), all=TRUE)
+
+#Calculate wilcoxon rank sum p values within each cell line comparing EdU+ Proportion for each ECMp to COL1 
+dtp122L <- normMedians[grepl("HMEC122L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm)]
+dtp122L$CellLine <- "HMEC122L"
+dtp122L <- dtp122L[,pAdjustedWithinCellLineEdUPP := p.adjust(wilcoxPValue,method="fdr")]
+
+dtp240L <- normMedians[grepl("HMEC240L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm)]
+dtp240L$CellLine <- "HMEC240L"
+dtp240L <- dtp240L[,pAdjustedWithinCellLineEdUPP := p.adjust(wilcoxPValue,method="fdr")]
+
+#Add the p values that compare each EdU positive proportion to the COL1 values
+l3 <- merge(l3,rbind(dtp122L,dtp240L),by=c("ECMp","CellLine"), all=TRUE)
+
+#Calculate wilcoxon rank sum p values within each cell line comparing KRT19 High Proportion for each ECMp to COL1 
+dtp122L <- normMedians[grepl("HMEC122L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm)]
+dtp122L$CellLine <- "HMEC122L"
+dtp122L <- dtp122L[,pAdjustedWithinCellLineKRT19PP := p.adjust(wilcoxPValue,method="fdr")]
+
+dtp240L <- normMedians[grepl("HMEC240L",CellLine), wilcoxpValuesWithinACellLine(ECMp, Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm)]
+dtp240L$CellLine <- "HMEC240L"
+dtp240L <- dtp240L[,pAdjustedWithinCellLineKRT19PP := p.adjust(wilcoxPValue,method="fdr")]
+
+#Add the p values that compare each KRT19 High Proportion to the COL1 values
 l3 <- merge(l3,rbind(dtp122L,dtp240L),by=c("ECMp","CellLine"), all=TRUE)
 
 #Calculate wilcoxon rank tests across cell lines
@@ -107,9 +131,20 @@ wilcoxpValuesAcrossCellLines <- function(DT){
 }
 
 dtp <- normMedians[,.(wilcoxPValueAcrossCellLines=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine","Spot_PA_SpotCellCountNormCOL1MedianNorm")]
-dtp <- dtp[,pAdjustedAcrosCellLines := p.adjust(wilcoxPValueAcrossCellLines,method="fdr")]
+dtp <- dtp[,pAdjustedAcrosCellLinesSCC := p.adjust(wilcoxPValueAcrossCellLines,method="fdr")]
 #Add the p values that compare each SpotCellCount across cell lines
 l3 <- merge(l3,dtp,by="ECMp")
+
+dtp <- normMedians[,.(wilcoxPValueAcrossCellLines=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine","Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm")]
+dtp <- dtp[,pAdjustedAcrosCellLinesEdUPP := p.adjust(wilcoxPValueAcrossCellLines,method="fdr")]
+#Add the p values that compare each SpotCellCount across cell lines
+l3 <- merge(l3,dtp,by="ECMp")
+
+dtp <- normMedians[,.(wilcoxPValueAcrossCellLines=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine","Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm")]
+dtp <- dtp[,pAdjustedAcrosCellLinesKRT19PP := p.adjust(wilcoxPValueAcrossCellLines,method="fdr")]
+#Add the p values that compare each SpotCellCount across cell lines
+l3 <- merge(l3,dtp,by="ECMp")
+
 ```
 
 
@@ -164,14 +199,12 @@ All MEMAs in the experiment are in separate wells and have the same design of 48
 #####Boxplots
 This dataset has raw, RUVLoessResidual normalized and RUVLoessResidual normalized that has then been normalized to the collagen 1 spots in the same MEMA. These figures show results of these three states of processing. The RUVLoessResiduals normalization removes the variance between the replicates that are in the same location in the MEMA.  
 
-###Signals by ECM Protein and CellLine
-
-
+###Spot Cell Counts by ECM Protein and CellLine
 
 ```{r, fig.height=5, fig.width=14}
 
 #ECMp Spot cell counts Boxplots
-p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, colour=ECMp=="COL1", fill=pAdjustedWithinCellLine<.2))+
+p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, colour=ECMp=="COL1", fill=pAdjustedWithinCellLineSCC<.2))+
   geom_boxplot(outlier.size = .5)+
     scale_fill_manual(values=c("transparent","cornflowerblue"))+
   scale_colour_manual(values=c("black","blue"))+
@@ -185,7 +218,20 @@ p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, c
 p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
 p
 
-p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, fill=pAdjustedAcrosCellLines<.2, colour=CellLine))+
+#ECMp Spot cell counts Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, colour=CellLine, fill=pAdjustedWithinCellLineSCC<.2))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","coral3"))+
+  labs(x="ECM Protein",
+       y="Normalized Spot Cell Count",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized Spot Cell Count by ECM Protein")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+
+p <- ggplot(l3, aes(x=factor(ECMp), y=Spot_PA_SpotCellCountNormCOL1MedianNorm, fill=pAdjustedAcrosCellLinesSCC<.2, colour=CellLine))+
   geom_boxplot(outlier.size = .5)+
     scale_fill_manual(values=c("transparent","cornflowerblue"))+
   scale_colour_manual(values=c("black","coral3"))+
@@ -201,59 +247,112 @@ p
 ```
 
 ***
-The first figure compares Spot Cell Count values from each ECM protein to the collagen 1 spots of the same cell line. Each boxplot shows the distribution of ~14 replicate spots from 8 different plates. Significant differences between the response are based of Wilcoxon Rank Sum tests between each ECM protein and collagen 1. Boxplots with fdr adjusted p-values less than .2 are blue.  
+The first figure compares Spot Cell Count values from each ECM protein to the collagen 1 spots of the same cell line. Each boxplot shows the distribution of ~14 replicate spots from 8 different plates. Significant differences between the response are based on Wilcoxon Rank Sum tests between each ECM protein and collagen 1. Boxplots with fdr adjusted q-values less than 0.2 are filled blue.  
 
-###Proliferation and Lineage Signals
 
-```{r}
-#ECMp Proliferation Boxplots
-p <- ggplot(l3, aes(x=factor(ECMp), y=Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm))+
+###Proliferation Signal by ECM Protein and CellLine
+
+
+```{r, fig.height=5, fig.width=14}
+
+#ECMp EdU Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm, colour=ECMp=="COL1", fill=pAdjustedWithinCellLineEdUPP<.2))+
   geom_boxplot(outlier.size = .5)+
-  xlab("Well Plate Barcode")+ylab("Proliferation Proportion")+
-  ggtitle("Normalized Proliferation Proportion by ECM Protein")+
-    facet_wrap(~CellLine)+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(.8)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
-p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
-print(p)
-
-#Well level KRT19High Boxplots
-p <- ggplot(l3, aes(x=factor(ECMp), y=Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm, colour=CellLine))+
-  geom_boxplot(outlier.size = .5)+
-  xlab("Well Plate Barcode")+ylab("KRT19 High Proportion")+
-  ggtitle("Normalized KRT19 High Proportion by ECM Protein")+
-    facet_wrap(~CellLine)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","blue"))+
+  guides(colour=FALSE)+
+  labs(x="ECM Protein",
+       y="Normalized EdU",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized EdU by ECM Protein")+
+  facet_wrap(~CellLine)+
   theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
 p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
-print(p)
+p
 
+#ECMp EdU Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm, colour=CellLine, fill=pAdjustedWithinCellLineEdUPP<.2))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","coral3"))+
+  labs(x="ECM Protein",
+       y="Normalized EdU",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized EdU Positive Proportion by ECM Protein")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+
+p <- ggplot(l3, aes(x=factor(ECMp), y=Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm, fill=pAdjustedAcrosCellLinesEdUPP<.2, colour=CellLine))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","coral3"))+
+    labs(x="ECM Protein",
+       y="Normalized EdU Positive Proportion",
+       colour="Cell Line",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized EdU Positive Proportion by ECM Protein")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+```
+
+***
+The first figure compares EdU Positive Proportion values from each ECM protein to the collagen 1 spots of the same cell line. Each boxplot shows the distribution of ~14 replicate spots from 8 different plates. Significant differences between the response are based of Wilcoxon Rank Sum tests between each ECM protein and collagen 1. Boxplots with fdr adjusted p-values less than .2 are blue.  
+
+
+###Lineage Signal by ECM Protein and CellLine
+
+
+
+```{r, fig.height=5, fig.width=14}
+
+#ECMp Lineage Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm, colour=ECMp=="COL1", fill=pAdjustedWithinCellLineKRT19PP<.2))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","blue"))+
+  guides(colour=FALSE)+
+  labs(x="ECM Protein",
+       y="Normalized KRT19 Positive Proportion",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized KRT19 Positive Proportion by ECM Protein")+
+  facet_wrap(~CellLine)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+
+#ECMp lineage Boxplots
+p <- ggplot(l3, aes(x=factor(ECMp), y=Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm, colour=CellLine, fill=pAdjustedWithinCellLineKRT19PP<.2))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","coral3"))+
+  labs(x="ECM Protein",
+       y="Normalized KRT19 Positive Proportion",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized KRT19 Positive Proportion by ECM Protein")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
+
+p <- ggplot(l3, aes(x=factor(ECMp), y=Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm, fill=pAdjustedAcrosCellLinesKRT19PP<.2, colour=CellLine))+
+  geom_boxplot(outlier.size = .5)+
+    scale_fill_manual(values=c("transparent","cornflowerblue"))+
+  scale_colour_manual(values=c("black","coral3"))+
+    labs(x="ECM Protein",
+       y="Normalized KRT19 Positive Proportion",
+       colour="Cell Line",
+       fill="Wilcoxon Rank Sum\n Adjusted pValue < .2",
+       title="Normalized KRT19 Positive Proportion by ECM Protein")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust=0.5, size=rel(1)), axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1, size=rel(1)), plot.title = element_text(size = rel(1)),legend.text=element_text(size = rel(.8)),legend.title=element_text(size = rel(.8)))
+p <- p + geom_hline(yintercept = 1, colour="blue", alpha=.5)
+p
 
 ```
 
 ***
-These boxplots show the fully normalized values for spot cell count, EdU positive proportion and KRT19 high positive proportion for each ECM protein and cell line. Each boxplot contains data from 80-120 replicate spots that come from 8 different plates.  
+The first figure compares KRT19 Positive Proportion values from each ECM protein to the collagen 1 spots of the same cell line. Each boxplot shows the distribution of ~14 replicate spots from 8 different plates. Significant differences between the response are based of Wilcoxon Rank Sum tests between each ECM protein and collagen 1. Boxplots with fdr adjusted p-values less than .2 are blue.  
 
-
-### of the significant signals (Wilcoxon Rank Sum tests)
-
-
-```{r WilcoxonHeatmapsOfReplicates, fig.height=5}
-
-signalName <- "Nuclei_PA_Gated_EdUPositiveProportionNormCOL1MedianNorm"
-dtp <- l3[,.(wilcoxPValue=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- l3[l3$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-
-
-signalName <- "Cytoplasm_PA_Gated_KRT19PositiveProportionNormCOL1MedianNorm"
-dtp <- l3[,.(wilcoxPValue=wilcoxpValuesAcrossCellLines(.SD)),by="ECMp",.SDcols=c("CellLine",signalName)]
-dtp <- dtp[,pAdjusted := p.adjust(wilcoxPValue,method="fdr")]
-dtf <- l3[l3$ECMp %in% dtp$ECMp[dtp$pAdjusted<0.2],]
-
-
-kable(unique(l3[l3$pAdjustedWithinCellLine<.2,.(CellLine, ECMp, pAdjustedWithinCellLine)]))
-```
-
-***
 
 ###Scatterplots of the RUVLoessResiduals normalized signals
 
@@ -383,6 +482,37 @@ PCA is run on the differences to reduce from `r length(COL1NormFVNames)` signals
 The scatterplot shows the first 2 principal components of all normalized signals, colored by ECM protein. Hovering over a spot shows its ECM protein. 
 
 
+###tSNE analysis on all normalized features
+
+```{r createtSNE}
+dt <- MEPs
+tSNEParameters <- grep("Norm",colnames(dt), value=TRUE)
+stdDevs <- apply(dt[,tSNEParameters, with=FALSE], 2, sd)
+tSNEParameters <- tSNEParameters[!stdDevs==0]
+data_matrix <- scale(as.matrix(dt[,tSNEParameters, with=FALSE]))
+
+set.seed(1234)
+data_tsne <- Rtsne(data_matrix, perplexity = 15)
+dtt <- cbind(dt,data_tsne$Y)
+```
+
+
+```{r plottSNE}
+
+p <- ggplot(dtt, aes_string(x="V1", y="V2", text="ECMp", colour = "ECMp"))+
+  geom_point(size=rel(2), alpha=.8)+
+  ggtitle(paste("tSNE plot of All N"))+
+  #scale_colour_gradient(low="black",high="red",oob = scales::squish)+
+  guides(colour =FALSE)
+ggplotly(p)
+
+```
+
+***
+
+tSNE dimension reduction on collagen 1 MEP's paramaters, colored by ligand.
+
+
 ###Interactive Scatterplot of RUV+Col1 Normalized Spot Cell Count
 
 ```{r, scatterPlotlySCC, fig.height=3,fig.width=4}
@@ -455,3 +585,34 @@ p
 ```
 
 ***
+
+###Normalization Checks
+
+```{r}
+dt <- l3[l3$CellLine=="HMEC240L",]
+dt <- dt[dt$ECMp=="COL1",]
+dt <- dt[dt$Well=="A03",]
+dt <- dt[,SCCSpotMedian := numericMedian(Spot_PA_SpotCellCount),by=c("Spot")]
+dt <- dt[,SCCECMpMedian := numericMedian(Spot_PA_SpotCellCount),by=c("Barcode","ECMp")]
+dtc <- dcast(dt, Spot~Barcode, value.var = "Spot_PA_SpotCellCountNorm")
+
+p <- ggplot(dtc, aes(x=LI8X00651, y=LI8X00652))+
+  geom_point()+
+  labs(x="Normalized Cell Count for LI8X00651",
+       y="Normalized Cell Count for LI8X00652",
+       title="Normalized values of COL1 spots at the same position in different wells")
+p
+
+p <- ggplot(dt, aes(x=Spot_PA_SpotCellCountNorm, y=SCCECMpMedian))+
+  geom_point(alpha=.3)+
+  facet_wrap(~Barcode)+
+  labs(x="Normalized Spot Cell Count",
+       y="Median COL1 SCC for the well",
+       title="Median COL1_FBS SCC vs Normalized Value")
+p
+
+```
+
+***
+
+These plots provide evidence of the normalization results. Spots with the same conditions and locations in different plates are normalized until they have similar/identical values. Spots within a plate that have the same conditions but different locations have different values.  
